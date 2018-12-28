@@ -1,6 +1,9 @@
+import sys
 import numpy
 import time
 import random
+
+from numpy.core.multiarray import ndarray
 from scipy.sparse import csr_matrix,lil_matrix
 from scipy.sparse.csgraph import shortest_path
 
@@ -162,39 +165,31 @@ def evaluate_solution(graph: numpy.array, demand, solution):
             if routes_dist[min_index][i][j] != float('inf'):
                 score += demand[i][j] * routes_dist[min_index][i][j]
             else:
-                score += demand[i][j] * (total_dist[i][j]+2)
+                if demand[i][j] != 0:
+                    score += demand[i][j] * (total_dist[i][j]+2)
     return score
 
 
 def solution_modification(graph, demand, max_node, solution):
     rand_route = random.randint(0, len(solution)-1)
     current_route = solution[rand_route].copy()
-    modified_route = current_route.copy()
+    modified_solution = solution.copy()
     rand_node = 0
 
-    while len(modified_route) >= max_node:
-        numpy.delete(modified_route, random.randint(0, len(modified_route)-1))
+    while len(current_route) >= max_node:
+        current_route = numpy.delete(current_route, random.randint(0, len(current_route)-1))
 
-    while rand_node in modified_route:
+    while rand_node in current_route:
         rand_node = random.randint(0, len(graph[0])-1)
 
-    for node in range(0, len(modified_route)):
-        new_route = numpy.insert(modified_route, node+1, rand_node)
-        new_solution = []
-        for i in range(0, len(solution)):
-            if i == rand_route:
-                new_solution.append(new_route)
-            else:
-                new_solution.append(solution[i])
-        if evaluate_solution(graph, demand, new_solution) <= evaluate_solution(graph, demand, solution):
-            modified_route = new_route
+    for node in range(0, len(current_route)):
+        new_route = numpy.insert(current_route, node+1, rand_node)
+        new_solution = solution.copy()
+        new_solution[rand_route] = new_route
+        
+        if evaluate_solution(graph, demand, new_solution) <= evaluate_solution(graph, demand, modified_solution):
+            modified_solution = new_solution
 
-    modified_solution = []
-    for i in range(0, len(solution)):
-        if i == rand_route:
-            modified_solution.append(modified_route)
-        else:
-            modified_solution.append(solution[i])
     return modified_solution
 
 
@@ -301,14 +296,10 @@ def frequency_setting(graph, demand, solution, capacity_per_vehicle):
 
 
 def main():
-    graph_data = numpy.genfromtxt("C:/Users/gajan/Desktop/m.csv", delimiter=";")
-    demand = numpy.array([[0, 1, 2, 1, 1, 1],
-                          [1, 0, 1, 1, 1, 1],
-                          [1, 1, 0, 1, 4, 1],
-                          [1, 1, 2, 0, 1, 1],
-                          [1, 1, 1, 1, 0, 1],
-                          [1, 1, 1, 1, 1, 0]])
-    sc, solution = route_generation(graph_data, demand, 4, 5, 6, 130)
+    args = sys.argv[1:]
+    graph_data = numpy.genfromtxt(args[0], delimiter=";")
+    demand: ndarray = numpy.genfromtxt(args[1], delimiter=";")
+    sc, solution = route_generation(graph_data, demand, 3, 2, 4, 1250)
     freq_set = frequency_setting(graph_data, demand, solution, 1)
     print("Score: ", sc, "\n")
     for i in range(0, len(solution)):
