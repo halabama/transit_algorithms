@@ -186,7 +186,7 @@ def solution_modification(graph, demand, max_node, solution):
         new_route = numpy.insert(current_route, node+1, rand_node)
         new_solution = solution.copy()
         new_solution[rand_route] = new_route
-        
+
         if evaluate_solution(graph, demand, new_solution) <= evaluate_solution(graph, demand, modified_solution):
             modified_solution = new_solution
 
@@ -299,7 +299,7 @@ def main():
     args = sys.argv[1:]
     graph_data = numpy.genfromtxt(args[0], delimiter=";")
     demand: ndarray = numpy.genfromtxt(args[1], delimiter=";")
-    sc, solution = route_generation(graph_data, demand, 3, 2, 4, 1250)
+    sc, solution = route_generation(graph_data, demand, random.randint(1, 10), 2, len(graph_data), 1250)
     freq_set = frequency_setting(graph_data, demand, solution, 1)
     print("Score: ", sc, "\n")
     for i in range(0, len(solution)):
