@@ -97,24 +97,21 @@ def initialize_route_generation(graph, demand: numpy.array, num_routes, min_node
                 edges[sp_list[i][j][k-1]][sp_list[i][j][k]] += demand[i][j]
 
     for i in range(0, len(graph[0])):
-        for j in range(0, len(graph[0])):
+        for j in range(i, len(graph[0])):
             if i != j and graph[i][j] != float('inf'):
                 edges[i][j] /= graph[i][j]
+            else:
+                edges[i][j] = -float('inf')
 
-    tot_demand = edges.sum()
     active_edges = []
     for i in range(0, len(edges[0])):
         for j in range(i, len(edges[0])):
-            if i != j:
-                edges[i][j] /= tot_demand
-                edges[j][i] /= tot_demand
-                if edges[i][j] != 0:
-                    active_edges.append([i, j, edges[i][j]+edges[j][i]])
-
-    for i in range(0, len(graph[0])):
-        for j in range(0, len(graph[0])):
-            if i == j or graph[i][j] == float('inf'):
-                edges[i][j] = -float('inf')
+            edge_sum = edges[i][j]+edges[j][i]
+            edges[i][j] = edge_sum
+            edges[j][i] = edge_sum
+            if edges[i][j] != -float('inf'):
+                active_edges.append([i, j])
+                active_edges.append([j, i])
 
     solution_list = []
     for i in range(0, num_routes):
@@ -122,21 +119,21 @@ def initialize_route_generation(graph, demand: numpy.array, num_routes, min_node
         new_route = [active_edges[random_edge][0], active_edges[random_edge][1]]
         num_nodes = random.randint(min_node, max_node)
         tmp_edges = numpy.array(edges)
-        tmp_edges[0:][new_route[-1]] = -float('inf')
-        tmp_edges[0:][new_route[0]] = -float('inf')
-        for x in range(0, len(tmp_edges[0])):
-            tmp_edges[x][x] = -float('inf')
+        tmp_edges[:, new_route[-1]] = -float('inf')
+        tmp_edges[new_route[0], :] = -float('inf')
+
         for n in range(2, num_nodes):
             max_incoming = tmp_edges.argmax(axis=0)
             max_outgoing = tmp_edges.argmax(axis=1)
             extend_end_candidate = max_outgoing[new_route[-1]]
             extend_start_candidate = max_incoming[new_route[0]]
             if tmp_edges[new_route[-1]][extend_end_candidate] > tmp_edges[extend_start_candidate][new_route[0]]:
-                tmp_edges[:][new_route[-1]] = -float('inf')
+                tmp_edges[new_route[-1], :] = -float('inf')
                 new_route.append(extend_end_candidate)
             elif tmp_edges[extend_start_candidate][new_route[0]] > -float('inf'):
-                tmp_edges[:][new_route[0]] = -float('inf')
+                tmp_edges[:, new_route[0]] = -float('inf')
                 new_route.insert(0, extend_start_candidate)
+                tmp_edges[new_route[0], :] = -float('inf')
         solution_list.append(new_route)
     return solution_list
 
@@ -155,6 +152,7 @@ def evaluate_solution(graph: numpy.array, demand, solution):
         routes_dist[r] = shortest_path(routes_graph[r], 'D')
 
     total_graph = numpy.empty((len(graph[0]), len(graph[0])))
+    total_graph.fill(float('inf'))
     for route in routes_graph:
         total_graph = numpy.minimum(route, total_graph)
     total_dist = shortest_path(total_graph, 'D')
@@ -166,7 +164,7 @@ def evaluate_solution(graph: numpy.array, demand, solution):
                 score += demand[i][j] * min_value
             else:
                 if demand[i][j] != 0:
-                    score += demand[i][j] * (total_dist[i][j]+2)
+                    score += demand[i][j] * (total_dist[i][j]*1.25)
     return score
 
 
@@ -243,51 +241,44 @@ def frequency_setting(graph, demand, solution, capacity_per_vehicle):
                     for x in range(1, len(path)):
                         routes_edge_load[route][path[x-1]][path[x]] += r_demand
 
-    if dynamic_demand.sum() == 0:
-        frequency_set = []
-        for route_load in routes_edge_load:
-            frequency_set.append(numpy.max(route_load)/capacity_per_vehicle)
-        return frequency_set
-    frequency_set = []
-    for route_load in routes_edge_load:
-        frequency_set.append(numpy.max(route_load) / capacity_per_vehicle)
-    transfer_graph = numpy.empty((len(solution), len(solution), len(graph[0]), len(graph[0])))
-    transfer_dist = numpy.empty((len(solution), len(solution), len(graph[0]), len(graph[0])))
-    transfer_paths = []
-    transfer_graph.fill(float('inf'))
-    transfer_dist.fill(float('inf'))
-    for rx in range(0, len(solution)):
-        transfer_paths.append([])
-        for ry in range(rx, len(solution)):
-            if rx != ry:
-                transfer_graph[rx][ry] = numpy.minimum(routes_graph[rx], routes_graph[ry])
-                transfer_dist[rx][ry], transfer_prev = shortest_path(transfer_graph[rx][ry], 'D', return_predecessors=1)
-                transfer_paths[rx].append(create_path_from_prev(transfer_prev))
+    if dynamic_demand.sum() > 0:
+        transfer_graph = numpy.empty((len(solution), len(solution), len(graph[0]), len(graph[0])))
+        transfer_dist = numpy.empty((len(solution), len(solution), len(graph[0]), len(graph[0])))
+        transfer_paths = []
+        transfer_graph.fill(float('inf'))
+        transfer_dist.fill(float('inf'))
+        for rx in range(0, len(solution)):
+            transfer_paths.append([])
+            for ry in range(rx, len(solution)):
+                if rx != ry:
+                    transfer_graph[rx][ry] = numpy.minimum(routes_graph[rx], routes_graph[ry])
+                    transfer_dist[rx][ry], tf_prev = shortest_path(transfer_graph[rx][ry], 'D', return_predecessors=True)
+                    transfer_paths[rx].append(create_path_from_prev(tf_prev))
 
-    min_value = numpy.min(transfer_dist, axis=(0, 1))
+        min_value = numpy.min(transfer_dist, axis=(0, 1))
 
-    for i in range(0, len(demand)):
-        for j in range(0, len(demand)):
-            if i == j or dynamic_demand[i][j] == 0 or min_value[i][j] == float('inf'):
-                continue
-            route_pair = []
-            for rx in range(0, len(solution)):
-                for ry in range(rx, len(solution)):
-                    if transfer_dist[rx][ry][i][j] == min_value[i][j]:
-                        route_pair.append([rx, ry])
-            r_demand = dynamic_demand[i][j]/len(route_pair)
-            dynamic_demand[i][j] = 0
-            for pair in route_pair:
-                route_x = list(solution[pair[0]])
-                route_y = list(solution[pair[1]])
-                path = transfer_paths[pair[0]][pair[1]-rx][i][j]
-                for p in range(1, len(path)):
-                    if path[p-1] in route_x and path[p] in route_x:
-                        if abs(route_x.index(path[p-1]) - route_x.index(path[p])) == 1:
-                            routes_edge_load[pair[0]][path[p-1]][path[p]] += r_demand
-                    elif path[p-1] in route_y and path[p] in route_y:
-                        if abs(route_y.index(path[p-1]) - route_y.index(path[p])) == 1:
-                            routes_edge_load[pair[1]][path[p-1]][path[p]] += r_demand
+        for i in range(0, len(demand)):
+            for j in range(0, len(demand)):
+                if i == j or dynamic_demand[i][j] == 0 or min_value[i][j] == float('inf'):
+                    continue
+                route_pair = []
+                for rx in range(0, len(solution)):
+                    for ry in range(rx, len(solution)):
+                        if transfer_dist[rx][ry][i][j] == min_value[i][j]:
+                            route_pair.append([rx, ry])
+                r_demand = dynamic_demand[i][j]/len(route_pair)
+                dynamic_demand[i][j] = 0
+                for pair in route_pair:
+                    route_x = list(solution[pair[0]])
+                    route_y = list(solution[pair[1]])
+                    path = transfer_paths[pair[0]][pair[1]-rx][i][j]
+                    for p in range(1, len(path)):
+                        if path[p-1] in route_x and path[p] in route_x:
+                            if abs(route_x.index(path[p-1]) - route_x.index(path[p])) == 1:
+                                routes_edge_load[pair[0]][path[p-1]][path[p]] += r_demand
+                        elif path[p-1] in route_y and path[p] in route_y:
+                            if abs(route_y.index(path[p-1]) - route_y.index(path[p])) == 1:
+                                routes_edge_load[pair[1]][path[p-1]][path[p]] += r_demand
     frequency_set = []
     for route_load in routes_edge_load:
         frequency_set.append(numpy.max(route_load) / capacity_per_vehicle)
@@ -299,9 +290,8 @@ def main():
     args = sys.argv[1:]
     graph_data = numpy.genfromtxt(args[0], delimiter=";")
     demand: ndarray = numpy.genfromtxt(args[1], delimiter=";")
-    sc, solution = route_generation(graph_data, demand, random.randint(1, 10), 3, len(graph_data), 1250)
+    sc, solution = route_generation(graph_data, demand, random.randint(1, 4), 2, len(graph_data[0]), 1250)
     freq_set = frequency_setting(graph_data, demand, solution, 10)
-    print(sep="")
     print("Score: ", sc)
     for i in range(0, len(solution)):
         print("Route ", i, ",frequency=", "%.2f" % freq_set[i], "\t:\t", '-'.join(map(str, solution[i])), sep="")
