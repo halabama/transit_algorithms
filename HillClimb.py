@@ -4,7 +4,7 @@ import time
 import random
 
 from numpy.core.multiarray import ndarray
-from scipy.sparse import csr_matrix,lil_matrix
+from scipy.sparse import lil_matrix
 from scipy.sparse.csgraph import shortest_path
 
 
@@ -156,14 +156,14 @@ def evaluate_solution(graph: numpy.array, demand, solution):
 
     total_graph = numpy.empty((len(graph[0]), len(graph[0])))
     for route in routes_graph:
-        total_graph = numpy.minimum(route,total_graph)
+        total_graph = numpy.minimum(route, total_graph)
     total_dist = shortest_path(total_graph, 'D')
 
     for i in range(0, len(graph[0])):
         for j in range(0, len(graph[0])):
-            min_index = numpy.argmin(routes_dist, 0)[i][j]
-            if routes_dist[min_index][i][j] != float('inf'):
-                score += demand[i][j] * routes_dist[min_index][i][j]
+            min_value = numpy.min(routes_dist, 0)[i][j]
+            if min_value != float('inf'):
+                score += demand[i][j] * min_value
             else:
                 if demand[i][j] != 0:
                     score += demand[i][j] * (total_dist[i][j]+2)
@@ -299,11 +299,12 @@ def main():
     args = sys.argv[1:]
     graph_data = numpy.genfromtxt(args[0], delimiter=";")
     demand: ndarray = numpy.genfromtxt(args[1], delimiter=";")
-    sc, solution = route_generation(graph_data, demand, random.randint(1, 10), 2, len(graph_data), 1250)
-    freq_set = frequency_setting(graph_data, demand, solution, 1)
-    print("Score: ", sc, "\n")
+    sc, solution = route_generation(graph_data, demand, random.randint(1, 10), 3, len(graph_data), 1250)
+    freq_set = frequency_setting(graph_data, demand, solution, 10)
+    print(sep="")
+    print("Score: ", sc)
     for i in range(0, len(solution)):
-        print("Route ", i, ":", solution[i], " : frequency=", freq_set[i])
+        print("Route ", i, ",frequency=", "%.2f" % freq_set[i], "\t:\t", '-'.join(map(str, solution[i])), sep="")
 
 
 if __name__ == "__main__":
