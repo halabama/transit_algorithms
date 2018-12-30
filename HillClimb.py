@@ -161,6 +161,7 @@ def initialize_route_generation(graph, demand: numpy.array, num_routes, min_node
             if tmp_edges[new_route[-1]][extend_end_candidate] > tmp_edges[extend_start_candidate][new_route[0]]:
                 tmp_edges[new_route[-1], :] = -float('inf')
                 new_route.append(extend_end_candidate)
+                tmp_edges[:, new_route[-1]] = -float('inf')
             elif tmp_edges[extend_start_candidate][new_route[0]] > -float('inf'):
                 tmp_edges[:, new_route[0]] = -float('inf')
                 new_route.insert(0, extend_start_candidate)
