@@ -18,8 +18,8 @@ def create_topology(n_nodes, dx, dy):
     graph_data.fill(0)
     for i in range(0, n_nodes):
         for j in range(0, n_nodes):
-            graph_data[i][j] = round(math.sqrt((node_list[i][0]-node_list[j][0])**2 +
-                                               (node_list[i][1]-node_list[j][1])**2), 2)
+            graph_data[i][j] = math.ceil(math.sqrt((node_list[i][0]-node_list[j][0])**2 +
+                                                   (node_list[i][1]-node_list[j][1])**2))
 
     return graph_data
 
@@ -297,10 +297,25 @@ def frequency_setting(graph, demand, solution, vehicle: Vehicle):
             if i == j:
                 continue
             if min_value[i][j] != float('inf'):
-                routes = []
+                routes_d = []
                 for r in range(0, len(solution)):
                     if routes_dist[r][i][j] == min_value[i][j]:
+                        routes_d.append(r)
+
+                routes = []
+                for r in routes_d:
+                    if not routes:
                         routes.append(r)
+                        continue
+                    tmp = routes[0]
+                    if routes_dist[r][solution[r][0]][solution[r][-1]] < \
+                            routes_dist[tmp][solution[tmp][0]][solution[tmp][-1]]:
+                        routes.clear()
+                        routes.append(r)
+                    elif routes_dist[r][solution[r][0]][solution[r][-1]] == \
+                            routes_dist[tmp][solution[tmp][0]][solution[tmp][-1]]:
+                        routes.append(r)
+
                 r_demand = dynamic_demand[i][j]/len(routes)
                 dynamic_demand[i][j] = 0
                 for route in routes:
@@ -328,11 +343,28 @@ def frequency_setting(graph, demand, solution, vehicle: Vehicle):
             for j in range(0, len(demand)):
                 if i == j or dynamic_demand[i][j] == 0 or min_value[i][j] == float('inf'):
                     continue
-                route_pair = []
+                route_pair_d = []
                 for rx in range(0, len(solution)):
                     for ry in range(rx+1, len(solution)):
                         if transfer_dist[rx][ry][i][j] == min_value[i][j]:
-                            route_pair.append([rx, ry])
+                            route_pair_d.append([rx, ry])
+
+                route_pair = []
+                for pair in route_pair_d:
+                    if not route_pair:
+                        route_pair.append(pair)
+                        continue
+                    cycle_sum_new = routes_dist[pair[0]][solution[pair[0]][0]][solution[pair[0]][-1]] +\
+                        routes_dist[pair[1]][solution[pair[1]][0]][solution[pair[1]][-1]]
+                    cycle_sum_old = \
+                        routes_dist[route_pair[0][0]][solution[route_pair[0][0]][0]][solution[route_pair[0][0]][-1]] +\
+                        routes_dist[route_pair[0][1]][solution[route_pair[0][1]][0]][solution[route_pair[0][1]][-1]]
+                    if cycle_sum_new < cycle_sum_old:
+                        route_pair.clear()
+                        route_pair.append(pair)
+                    elif cycle_sum_old == cycle_sum_new:
+                        route_pair.append(pair)
+
                 r_demand = dynamic_demand[i][j]/len(route_pair)
                 dynamic_demand[i][j] = 0
                 for pair in route_pair:
@@ -359,12 +391,12 @@ def frequency_setting(graph, demand, solution, vehicle: Vehicle):
 def main():
     # args = sys.argv[1:]
     # graph_data = numpy.genfromtxt(args[0], delimiter=";")
-    graph_data = create_topology(25, 100, 100)
+    graph_data = create_topology(25, 1000, 1000)
     # demand_per_hour: ndarray = numpy.genfromtxt(args[1], delimiter=";")
     demand_per_hour = create_demand_matrix(graph_data, 100)
     sc, solution = route_generation(graph_data, demand_per_hour, random.randint(1, len(graph_data[0])),
                                     2, len(graph_data[0]), 1201)
-    vehicle = Vehicle(20, .2)
+    vehicle = Vehicle(20, 14)
     freq_set, opr_score_set = frequency_setting(graph_data, demand_per_hour, solution, vehicle)
     print("Usage Score:%.2f" % sc, " Operation Score:%d" % opr_score_set.sum())
     for i in range(0, len(solution)):
