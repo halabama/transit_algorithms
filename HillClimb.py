@@ -97,7 +97,7 @@ def initialize_route_generation(graph, demand: numpy.array, num_routes, min_node
                 edges[sp_list[i][j][k-1]][sp_list[i][j][k]] += demand[i][j]
 
     for i in range(0, len(graph[0])):
-        for j in range(i, len(graph[0])):
+        for j in range(0, len(graph[0])):
             if i != j and graph[i][j] != float('inf'):
                 edges[i][j] /= graph[i][j]
             else:
@@ -121,7 +121,7 @@ def initialize_route_generation(graph, demand: numpy.array, num_routes, min_node
         tmp_edges = numpy.array(edges)
         tmp_edges[:, new_route[-1]] = -float('inf')
         tmp_edges[new_route[0], :] = -float('inf')
-
+        tmp_edges[new_route[-1], new_route[0]] = -float('inf')
         for n in range(2, num_nodes):
             max_incoming = tmp_edges.argmax(axis=0)
             max_outgoing = tmp_edges.argmax(axis=1)
@@ -134,6 +134,7 @@ def initialize_route_generation(graph, demand: numpy.array, num_routes, min_node
                 tmp_edges[:, new_route[0]] = -float('inf')
                 new_route.insert(0, extend_start_candidate)
                 tmp_edges[new_route[0], :] = -float('inf')
+            tmp_edges[new_route[-1]][new_route[0]] = -float('inf')
         solution_list.append(new_route)
     return solution_list
 
@@ -168,24 +169,49 @@ def evaluate_solution(graph: numpy.array, demand, solution):
     return score
 
 
-def solution_modification(graph, demand, max_node, solution):
-    rand_route = random.randint(0, len(solution)-1)
-    current_route = solution[rand_route].copy()
+def solution_modification(graph, demand, max_node, min_node, solution):
+    random_route = random.randint(0, len(solution)-1)
+    solution_route = list(solution[random_route].copy())
     modified_solution = solution.copy()
     rand_node = 0
 
-    while len(current_route) >= max_node:
-        current_route = numpy.delete(current_route, random.randint(0, len(current_route)-1))
+    for node in range(0, len(solution_route)):
+        if len(solution_route) <= min_node:
+            break
+        if node != 0 and node != len(solution_route)-1:
+            if graph[solution_route[node-1]][solution_route[node+1]] == float('inf'):
+                continue
 
-    while rand_node in current_route:
-        rand_node = random.randint(0, len(graph[0])-1)
-
-    for node in range(0, len(current_route)):
-        new_route = numpy.insert(current_route, node+1, rand_node)
+        new_route = numpy.delete(solution_route, node)
         new_solution = solution.copy()
-        new_solution[rand_route] = new_route
+        new_solution[random_route] = new_route
 
         if evaluate_solution(graph, demand, new_solution) <= evaluate_solution(graph, demand, modified_solution):
+            modified_solution = new_solution
+
+    if len(solution_route) >= max_node:
+        solution_route.pop(0)
+    while rand_node in solution_route:
+        rand_node = random.randint(0, len(graph[0])-1)
+
+    for node in range(0, len(solution_route)+1):
+        if node == 0:
+            if graph[rand_node][solution_route[node]] == float('inf'):
+                continue
+        elif node == len(solution_route):
+            if graph[solution_route[node-1]][rand_node] == float('inf'):
+                continue
+        else:
+            if graph[solution_route[node-1]][rand_node] == float('inf') or graph[rand_node][solution_route[node]] == float('inf'):
+                continue
+
+        new_route = numpy.insert(solution_route, node, rand_node)
+        new_solution = solution.copy()
+        new_solution[random_route] = new_route
+
+        score_new = evaluate_solution(graph, demand, new_solution)
+        score_mod = evaluate_solution(graph, demand, modified_solution)
+        if score_new < score_mod or score_mod == float('inf'):
             modified_solution = new_solution
 
     return modified_solution
@@ -197,7 +223,7 @@ def route_generation(graph, demand, num_routes, min_node, max_node, target_score
     sc = evaluate_solution(graph, demand, css)
     nss = css.copy()
     while sc > target_score and time.clock() < 10:
-        nss = solution_modification(graph, demand, max_node, nss)
+        nss = solution_modification(graph, demand, max_node, min_node, nss)
         sn = evaluate_solution(graph, demand, nss)
         if sn <= sc:
             css = nss
@@ -279,10 +305,10 @@ def frequency_setting(graph, demand, solution, capacity_per_vehicle):
                         elif path[p-1] in route_y and path[p] in route_y:
                             if abs(route_y.index(path[p-1]) - route_y.index(path[p])) == 1:
                                 routes_edge_load[pair[1]][path[p-1]][path[p]] += r_demand
-    frequency_set = []
-    for route_load in routes_edge_load:
-        frequency_set.append(numpy.max(route_load) / capacity_per_vehicle)
 
+    frequency_set = numpy.empty(len(solution))
+    for i in range(0, len(routes_edge_load)):
+        frequency_set[i] = (numpy.max(routes_edge_load[i]) / capacity_per_vehicle)
     return frequency_set
 
 
@@ -290,9 +316,9 @@ def main():
     args = sys.argv[1:]
     graph_data = numpy.genfromtxt(args[0], delimiter=";")
     demand: ndarray = numpy.genfromtxt(args[1], delimiter=";")
-    sc, solution = route_generation(graph_data, demand, random.randint(1, 4), 2, len(graph_data[0]), 1250)
-    freq_set = frequency_setting(graph_data, demand, solution, 10)
-    print("Score: ", sc)
+    sc, solution = route_generation(graph_data, demand, random.randint(1, 10), 2, len(graph_data[0]), 1201)
+    freq_set = frequency_setting(graph_data, demand, solution, 20)
+    print("Usage Score:", sc, " Operation Score:", "%.2f" % freq_set.sum())
     for i in range(0, len(solution)):
         print("Route ", i, ",frequency=", "%.2f" % freq_set[i], "\t:\t", '-'.join(map(str, solution[i])), sep="")
 
