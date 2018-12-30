@@ -9,6 +9,36 @@ from scipy.sparse import lil_matrix
 from scipy.sparse.csgraph import shortest_path
 
 
+def create_topology(n_nodes, dx, dy):
+    node_list = []
+    for i in range(0, n_nodes):
+        node_list.append([random.randint(0, dx), random.randint(0, dy)])
+
+    graph_data = numpy.empty((n_nodes, n_nodes))
+    graph_data.fill(0)
+    for i in range(0, n_nodes):
+        for j in range(0, n_nodes):
+            graph_data[i][j] = round(math.sqrt((node_list[i][0]-node_list[j][0])**2 +
+                                               (node_list[i][1]-node_list[j][1])**2), 2)
+
+    return graph_data
+
+
+def create_demand_matrix(graph_data, max_node_population):
+    traffic_count = []
+    for i in range(0, len(graph_data[0])):
+        traffic_count.append(random.randint(1, max_node_population))
+
+    demand_data = numpy.empty((len(graph_data[0]), len(graph_data[0])))
+    demand_data.fill(0)
+    for i in range(0, len(demand_data[0])):
+        tmp_sum = numpy.sum(traffic_count) - traffic_count[i]
+        for j in range(i+1, len(demand_data[0])):
+            demand_data[i][j] = math.ceil(traffic_count[i] * traffic_count[j]/tmp_sum)
+    demand_data = numpy.add(demand_data, demand_data.transpose())
+    return demand_data
+
+
 def dijkstra(graph, source, sink):
     start = source
     finish = sink
@@ -300,7 +330,7 @@ def frequency_setting(graph, demand, solution, vehicle: Vehicle):
                     continue
                 route_pair = []
                 for rx in range(0, len(solution)):
-                    for ry in range(rx, len(solution)):
+                    for ry in range(rx+1, len(solution)):
                         if transfer_dist[rx][ry][i][j] == min_value[i][j]:
                             route_pair.append([rx, ry])
                 r_demand = dynamic_demand[i][j]/len(route_pair)
@@ -308,7 +338,7 @@ def frequency_setting(graph, demand, solution, vehicle: Vehicle):
                 for pair in route_pair:
                     route_x = list(solution[pair[0]])
                     route_y = list(solution[pair[1]])
-                    path = transfer_paths[pair[0]][pair[1]-pair[0]][i][j]
+                    path = transfer_paths[pair[0]][pair[1]-pair[0]-1][i][j]
                     for p in range(1, len(path)):
                         if path[p-1] in route_x and path[p] in route_x:
                             if abs(route_x.index(path[p-1]) - route_x.index(path[p])) == 1:
@@ -327,14 +357,16 @@ def frequency_setting(graph, demand, solution, vehicle: Vehicle):
 
 
 def main():
-    args = sys.argv[1:]
-    graph_data = numpy.genfromtxt(args[0], delimiter=";")
-    demand_per_hour: ndarray = numpy.genfromtxt(args[1], delimiter=";")
+    # args = sys.argv[1:]
+    # graph_data = numpy.genfromtxt(args[0], delimiter=";")
+    graph_data = create_topology(25, 100, 100)
+    # demand_per_hour: ndarray = numpy.genfromtxt(args[1], delimiter=";")
+    demand_per_hour = create_demand_matrix(graph_data, 100)
     sc, solution = route_generation(graph_data, demand_per_hour, random.randint(1, len(graph_data[0])),
                                     2, len(graph_data[0]), 1201)
-    vehicle = Vehicle(20, 0.01)
+    vehicle = Vehicle(20, .2)
     freq_set, opr_score_set = frequency_setting(graph_data, demand_per_hour, solution, vehicle)
-    print("Usage Score:", sc, " Operation Score:%d" % opr_score_set.sum())
+    print("Usage Score:%.2f" % sc, " Operation Score:%d" % opr_score_set.sum())
     for i in range(0, len(solution)):
         print("Route ", i, ",freq_per_hour=%.2f,vehicles=%d" % (freq_set[i], opr_score_set[i]), "\t:\t",
               '-'.join(map(str, solution[i])), sep="")
