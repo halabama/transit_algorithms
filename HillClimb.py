@@ -2,6 +2,7 @@ import sys
 import numpy
 import time
 import random
+import math
 
 from numpy.core.multiarray import ndarray
 from scipy.sparse import lil_matrix
@@ -202,7 +203,8 @@ def solution_modification(graph, demand, max_node, min_node, solution):
             if graph[solution_route[node-1]][rand_node] == float('inf'):
                 continue
         else:
-            if graph[solution_route[node-1]][rand_node] == float('inf') or graph[rand_node][solution_route[node]] == float('inf'):
+            if graph[solution_route[node-1]][rand_node] == float('inf') or\
+                    graph[rand_node][solution_route[node]] == float('inf'):
                 continue
 
         new_route = numpy.insert(solution_route, node, rand_node)
@@ -234,7 +236,16 @@ def route_generation(graph, demand, num_routes, min_node, max_node, target_score
     return sc, css
 
 
-def frequency_setting(graph, demand, solution, capacity_per_vehicle):
+class Vehicle:
+    capacity = 0
+    velocity = 0
+
+    def __init__(self, p_capacity, p_velocity):
+        self.capacity = p_capacity
+        self.velocity = p_velocity
+
+
+def frequency_setting(graph, demand, solution, vehicle: Vehicle):
     routes_graph = numpy.empty((len(solution), len(graph[0]), len(graph[0])))
     routes_dist = numpy.empty((len(solution), len(graph[0]), len(graph[0])))
     routes_edge_load = numpy.empty((len(solution), len(graph[0]), len(graph[0])))
@@ -278,8 +289,8 @@ def frequency_setting(graph, demand, solution, capacity_per_vehicle):
             for ry in range(rx, len(solution)):
                 if rx != ry:
                     transfer_graph[rx][ry] = numpy.minimum(routes_graph[rx], routes_graph[ry])
-                    transfer_dist[rx][ry], tf_prev = shortest_path(transfer_graph[rx][ry], 'D', return_predecessors=True)
-                    transfer_paths[rx].append(create_path_from_prev(tf_prev))
+                    transfer_dist[rx][ry], t_prev = shortest_path(transfer_graph[rx][ry], 'D', return_predecessors=True)
+                    transfer_paths[rx].append(create_path_from_prev(t_prev))
 
         min_value = numpy.min(transfer_dist, axis=(0, 1))
 
@@ -297,7 +308,7 @@ def frequency_setting(graph, demand, solution, capacity_per_vehicle):
                 for pair in route_pair:
                     route_x = list(solution[pair[0]])
                     route_y = list(solution[pair[1]])
-                    path = transfer_paths[pair[0]][pair[1]-rx][i][j]
+                    path = transfer_paths[pair[0]][pair[1]-pair[0]][i][j]
                     for p in range(1, len(path)):
                         if path[p-1] in route_x and path[p] in route_x:
                             if abs(route_x.index(path[p-1]) - route_x.index(path[p])) == 1:
@@ -307,20 +318,26 @@ def frequency_setting(graph, demand, solution, capacity_per_vehicle):
                                 routes_edge_load[pair[1]][path[p-1]][path[p]] += r_demand
 
     frequency_set = numpy.empty(len(solution))
-    for i in range(0, len(routes_edge_load)):
-        frequency_set[i] = (numpy.max(routes_edge_load[i]) / capacity_per_vehicle)
-    return frequency_set
+    operation_set = numpy.empty(len(solution))
+    for i in range(0, len(solution)):
+        frequency_set[i] = (numpy.max(routes_edge_load[i]) / vehicle.capacity)
+        operation_set[i] = math.ceil(2*(routes_dist[i][solution[i][0]][solution[i][-1]]/vehicle.velocity)
+                                     * (frequency_set[i]/3600))
+    return frequency_set, operation_set
 
 
 def main():
     args = sys.argv[1:]
     graph_data = numpy.genfromtxt(args[0], delimiter=";")
-    demand: ndarray = numpy.genfromtxt(args[1], delimiter=";")
-    sc, solution = route_generation(graph_data, demand, random.randint(1, 10), 2, len(graph_data[0]), 1201)
-    freq_set = frequency_setting(graph_data, demand, solution, 20)
-    print("Usage Score:", sc, " Operation Score:", "%.2f" % freq_set.sum())
+    demand_per_hour: ndarray = numpy.genfromtxt(args[1], delimiter=";")
+    sc, solution = route_generation(graph_data, demand_per_hour, random.randint(1, len(graph_data[0])),
+                                    2, len(graph_data[0]), 1201)
+    vehicle = Vehicle(20, 0.01)
+    freq_set, opr_score_set = frequency_setting(graph_data, demand_per_hour, solution, vehicle)
+    print("Usage Score:", sc, " Operation Score:%d" % opr_score_set.sum())
     for i in range(0, len(solution)):
-        print("Route ", i, ",frequency=", "%.2f" % freq_set[i], "\t:\t", '-'.join(map(str, solution[i])), sep="")
+        print("Route ", i, ",freq_per_hour=%.2f,vehicles=%d" % (freq_set[i], opr_score_set[i]), "\t:\t",
+              '-'.join(map(str, solution[i])), sep="")
 
 
 if __name__ == "__main__":
