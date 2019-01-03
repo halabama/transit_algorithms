@@ -18,7 +18,8 @@ def create_topology(n_nodes, dx, dy):
                 continue
             graph_data[i][j] = math.ceil(math.sqrt((node_list[i][0]-node_list[j][0])**2 +
                                                    (node_list[i][1]-node_list[j][1])**2))
-
+            if random.random() < 0.25:
+                graph_data[i][j] = float('inf')
     return graph_data
 
 
@@ -107,7 +108,6 @@ def yen_ksp(graph, k):
                 if b[0][1] not in res[i][j]:
                     res[i][j].append(b[0][1])
                 b.pop(0)
-
     return res
 
 
@@ -120,6 +120,60 @@ def icrsgp(graph, min_node, max_node, k):
                 if min_node <= len(tmp[i][j][r]) <= max_node:
                     candidates.append(tmp[i][j][r])
     return candidates
+
+
+def init_hill_climbing(graph, demand, num_routes, min_node, max_node):
+    dist, prev = shortest_path(graph, 'D', return_predecessors=True)
+    edges = numpy.array(graph.copy())
+    edges.fill(0)
+    sp_list = create_path_from_prev(prev)
+    for i in range(0, len(graph[0])):
+        for j in range(0, len(graph[0])):
+            for k in range(1, len(sp_list[i][j])):
+                edges[sp_list[i][j][k - 1]][sp_list[i][j][k]] += demand[i][j]
+
+    for i in range(0, len(graph[0])):
+        for j in range(0, len(graph[0])):
+            if i != j and graph[i][j] != float('inf'):
+                edges[i][j] /= graph[i][j]
+            else:
+                edges[i][j] = -float('inf')
+
+    active_edges = []
+    for i in range(0, len(edges[0])):
+        for j in range(i, len(edges[0])):
+            edge_sum = edges[i][j] + edges[j][i]
+            edges[i][j] = edge_sum
+            edges[j][i] = edge_sum
+            if edges[i][j] != -float('inf'):
+                active_edges.append([i, j])
+                active_edges.append([j, i])
+
+    solution_list = []
+    for i in range(0, num_routes):
+        random_edge = random.randint(0, len(active_edges) - 1)
+        new_route = [active_edges[random_edge][0], active_edges[random_edge][1]]
+        num_nodes = random.randint(min_node, max_node)
+        tmp_edges = numpy.array(edges)
+        tmp_edges[:, new_route[-1]] = -float('inf')
+        tmp_edges[new_route[0], :] = -float('inf')
+        tmp_edges[new_route[-1], new_route[0]] = -float('inf')
+        for n in range(2, num_nodes):
+            max_incoming = tmp_edges.argmax(axis=0)
+            max_outgoing = tmp_edges.argmax(axis=1)
+            extend_end_candidate = max_outgoing[new_route[-1]]
+            extend_start_candidate = max_incoming[new_route[0]]
+            if tmp_edges[new_route[-1]][extend_end_candidate] > tmp_edges[extend_start_candidate][new_route[0]]:
+                tmp_edges[new_route[-1], :] = -float('inf')
+                new_route.append(extend_end_candidate)
+                tmp_edges[:, new_route[-1]] = -float('inf')
+            elif tmp_edges[extend_start_candidate][new_route[0]] > -float('inf'):
+                tmp_edges[:, new_route[0]] = -float('inf')
+                new_route.insert(0, extend_start_candidate)
+                tmp_edges[new_route[0], :] = -float('inf')
+            tmp_edges[new_route[-1]][new_route[0]] = -float('inf')
+        solution_list.append(new_route)
+    return solution_list
 
 
 class Vehicle:
@@ -271,8 +325,9 @@ def evaluate_solution(graph, demand, solution, vehicle: Vehicle, weights):
 def create_neighbour(candidate_space, current_solution: list):
     pivot_index = random.randint(0, len(current_solution)-1)
     pivot = current_solution[pivot_index]
+    sign = random.randint(0, 1)*2-1
     for i in range(0, len(candidate_space)):
-        pivot = (pivot+1) % len(candidate_space)
+        pivot = (pivot+sign) % len(candidate_space)
         if pivot not in current_solution:
             break
     neighbour_solution = current_solution.copy()
@@ -282,11 +337,12 @@ def create_neighbour(candidate_space, current_solution: list):
 
 
 def simulated_annealing(graph, demand, weights=(1, 1, 1)):
-    candidate_space = icrsgp(graph, 3, 10, 25)
-    max_counter = 15
-    max_generation = 5
+    candidate_space = icrsgp(graph, 4, 9, 5)
+    candidate_space.extend(init_hill_climbing(graph, demand, 150, 9, 15))
+    max_counter = 75
+    max_generation = 6
     max_routes = 5
-    max_cooling = 5
+    max_cooling = 3
     optimal_solution = None
     optimal_score = float('inf')
     optimal_freq_set = None
@@ -328,16 +384,20 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1)):
 
 
 def main():
-    graph_data = create_topology(10, 100, 100)
+    graph_data = create_topology(15, 100, 100)
     demand = create_demand_matrix(graph_data, 100)
-    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, (1e-10, 0, 1))
-    print("\rOptimal Score : %.2f" % opt_score)
+    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, (1e-3, 10, 100))
+    print("\rOptimal Score : %.2f" % opt_score, end="")
+    if opt_score == float('inf'):
+        graph_dist = shortest_path(graph_data, 'D')
+        print("=> Possible value:", numpy.max(graph_dist), end="")
+    print("")
     for i in range(0, len(opt_solution)):
         opt_headway = "inf"
         if opt_freq_set[i] != 0:
             opt_headway = f'{(60/opt_freq_set[i]):.2f}'
         print("\tRoute ", i, "\t:\t",
-              '-'.join(map(str, opt_solution[i])), "\tHeadway:", opt_headway, " min", sep="")
+              f'{"-".join(map(str, opt_solution[i])):<{len(demand)*3}}', "|Headway:", opt_headway, " min", sep="")
 
 
 if __name__ == "__main__":
