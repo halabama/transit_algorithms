@@ -323,26 +323,24 @@ def evaluate_solution(graph, demand, solution, vehicle: Vehicle, weights):
 
 
 def create_neighbour(candidate_space, current_solution: list):
-    pivot_index = random.randint(0, len(current_solution)-1)
-    pivot = current_solution[pivot_index]
+    mod_index = random.randint(0, len(current_solution)-1)
+    pivot = random.randint(0, len(candidate_space)-1)
     sign = random.randint(0, 1)*2-1
     for i in range(0, len(candidate_space)):
         pivot = (pivot+sign) % len(candidate_space)
         if pivot not in current_solution:
             break
     neighbour_solution = current_solution.copy()
-    neighbour_solution.pop(pivot_index)
-    neighbour_solution.insert(pivot_index, pivot)
+    neighbour_solution.pop(mod_index)
+    neighbour_solution.insert(mod_index, pivot)
     return neighbour_solution
 
 
-def simulated_annealing(graph, demand, weights=(1, 1, 1)):
-    candidate_space = icrsgp(graph, 4, 9, 5)
-    candidate_space.extend(init_hill_climbing(graph, demand, 150, 9, 15))
-    max_counter = 75
-    max_generation = 6
-    max_routes = 5
-    max_cooling = 3
+def simulated_annealing(graph, demand, weights=(1, 1, 1),
+                        max_routes=5, max_generation=3, max_cooling=3, max_counter=100):
+    candidate_space = icrsgp(graph, 5, len(demand), 3)
+    candidate_space.extend(init_hill_climbing(graph, demand, (len(demand)**2)*5, 3, len(demand)))
+
     optimal_solution = None
     optimal_score = float('inf')
     optimal_freq_set = None
@@ -360,7 +358,7 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1)):
             current_score, current_freq_set = \
                 evaluate_solution(graph, demand, [candidate_space[r] for r in current_solution], vehicle, weights)
             progress = (((n - 1) / max_routes) + (g / (max_generation * max_routes))) * 100
-            print("\r%.2f%%" % progress, end="")
+            print("\rProgress:%.2f%%" % progress, end="")
             sys.stdout.flush()
             for t in range(0, max_cooling):
 
@@ -384,9 +382,9 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1)):
 
 
 def main():
-    graph_data = create_topology(15, 100, 100)
+    graph_data = create_topology(20, 100, 100)
     demand = create_demand_matrix(graph_data, 100)
-    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, (1e-3, 10, 100))
+    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-4, 100, 100))
     print("\rOptimal Score : %.2f" % opt_score, end="")
     if opt_score == float('inf'):
         graph_dist = shortest_path(graph_data, 'D')
@@ -396,8 +394,8 @@ def main():
         opt_headway = "inf"
         if opt_freq_set[i] != 0:
             opt_headway = f'{(60/opt_freq_set[i]):.2f}'
-        print("\tRoute ", i, "\t:\t",
-              f'{"-".join(map(str, opt_solution[i])):<{len(demand)*3}}', "|Headway:", opt_headway, " min", sep="")
+        print("\tRoute ", i, "|Headway ", opt_headway, " min", "\t:\t",
+              f'{"-".join(map(str, opt_solution[i])):<{len(demand)*3}}', sep="")
 
 
 if __name__ == "__main__":
