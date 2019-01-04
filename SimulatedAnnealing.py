@@ -337,14 +337,14 @@ def create_neighbour(candidate_space, current_solution: list):
 
 
 def simulated_annealing(graph, demand, weights=(1, 1, 1),
-                        max_routes=5, max_generation=3, max_cooling=3, max_counter=100):
+                        max_routes=5, max_generation=2, max_cooling=3, max_counter=150):
     candidate_space = icrsgp(graph, 5, len(demand), 3)
-    candidate_space.extend(init_hill_climbing(graph, demand, (len(demand)**2)*5, 3, len(demand)))
+    candidate_space.extend(init_hill_climbing(graph, demand, (len(demand)**2)*3, 3, len(demand)))
 
     optimal_solution = None
     optimal_score = float('inf')
     optimal_freq_set = None
-    vehicle = Vehicle(20, 14)
+    vehicle = Vehicle(60, 0.9)
     progress = 0
     for n in range(1, max_routes+1):
         for g in range(0, max_generation):
@@ -357,23 +357,25 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
             current_solution = initial_solution
             current_score, current_freq_set = \
                 evaluate_solution(graph, demand, [candidate_space[r] for r in current_solution], vehicle, weights)
-            progress = (((n - 1) / max_routes) + (g / (max_generation * max_routes))) * 100
-            print("\rProgress:%.2f%%" % progress, end="")
-            sys.stdout.flush()
             for t in range(0, max_cooling):
-
                 for i in range(0, max_counter):
                     neighbour = create_neighbour(candidate_space, current_solution)
                     neighbour_score, neighbour_freq_set =\
                         evaluate_solution(graph, demand, [candidate_space[r] for r in neighbour], vehicle, weights)
-                if neighbour_score <= current_score:
-                    current_solution = neighbour
-                    current_score = neighbour_score
-                    current_freq_set = neighbour_freq_set
-                elif random.random() <= math.exp(-(neighbour_score-current_score)/(current_score*2*(1-t/max_cooling))):
+                    if numpy.min(neighbour_freq_set) < 0.5:
+                        continue
+                    if neighbour_score <= current_score:
                         current_solution = neighbour
                         current_score = neighbour_score
                         current_freq_set = neighbour_freq_set
+                    elif random.random() <= math.exp(-neighbour_score*(t+1)/current_score):
+                            current_solution = neighbour
+                            current_score = neighbour_score
+                            current_freq_set = neighbour_freq_set
+                progress = (((n - 1) / max_routes) + (g / (max_generation * max_routes)) +
+                            (t / (max_cooling * max_generation * max_routes))) * 100
+                print("\rProgress:%.2f%%" % progress, end="")
+                sys.stdout.flush()
             if current_score <= optimal_score:
                 optimal_solution = current_solution
                 optimal_score = current_score
@@ -382,9 +384,9 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
 
 
 def main():
-    graph_data = create_topology(20, 100, 100)
+    graph_data = create_topology(20, 1000, 1000)
     demand = create_demand_matrix(graph_data, 100)
-    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-4, 100, 100))
+    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-4, 1, 0))
     print("\rOptimal Score : %.2f" % opt_score, end="")
     if opt_score == float('inf'):
         graph_dist = shortest_path(graph_data, 'D')
