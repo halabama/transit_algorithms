@@ -339,11 +339,18 @@ def mutate_solution(graph, current_solution: list, min_node, max_node):
         opt_cost = float('inf')
 
         for n_id in ids:
-            for pos in range(1, len(current_route)):
-                if graph[current_route[pos-1], n_id]+graph[n_id, current_route[pos]] < opt_cost:
+            for pos in range(0, len(current_route)+1):
+                var = float('inf')
+                if pos == 0:
+                    var = graph[n_id, current_route[pos]]
+                elif pos == len(current_route):
+                    var = graph[current_route[pos-1], n_id]
+                else:
+                    var = graph[current_route[pos-1], n_id]+graph[n_id, current_route[pos]]
+                if var < opt_cost:
                     opt_id = n_id
                     opt_pos = pos
-                    opt_cost = graph[current_route[pos-1], n_id]+graph[n_id, current_route[pos]]
+                    opt_cost = var
 
         if opt_cost < float('inf'):
             current_route.insert(opt_pos, opt_id)
@@ -382,7 +389,7 @@ def create_neighbour(graph, candidate_space, current_solution: list, min_node, m
 
 def simulated_annealing(graph, demand, weights=(1, 1, 1),
                         max_routes=5, max_generation=5, max_cooling=4, max_counter=50):
-    candidate_space = icrsgp(graph, 3, len(demand), 5)
+    candidate_space = icrsgp(graph, 4, len(demand), 10)
 
     optimal_solution = None
     optimal_score = float('inf')
@@ -402,7 +409,7 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
                 evaluate_solution(graph, demand, [r[1] for r in current_solution], vehicle, weights)
             for t in range(0, max_cooling):
                 for i in range(0, max_counter):
-                    neighbour = create_neighbour(graph, candidate_space, current_solution, 3, len(demand))
+                    neighbour = create_neighbour(graph, candidate_space, current_solution, 4, len(demand))
                     neighbour_score, neighbour_freq_set =\
                         evaluate_solution(graph, demand, [r[1] for r in neighbour], vehicle, weights)
                     if numpy.min(neighbour_freq_set) < 1:
@@ -419,7 +426,7 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
                             (t / (max_cooling * max_generation * max_routes))) * 100
                 print("\rProgress:%.2f%%" % progress, end="")
                 sys.stdout.flush()
-            if current_score <= optimal_score:
+            if current_score < optimal_score:
                 optimal_solution = deepcopy(current_solution)
                 optimal_score = current_score
                 optimal_freq_set = deepcopy(current_freq_set)
@@ -428,13 +435,13 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
 
 
 def main():
-    # graph_data = create_topology(15, 1000, 1000)
-    # demand = create_demand_matrix(graph_data, 100)
+    graph_data = create_topology(15, 1000, 1000)
+    demand = create_demand_matrix(graph_data, 100)
     # numpy.savetxt("C:/Users/gajan/Desktop/graph.csv", graph_data, delimiter=";")
     # numpy.savetxt("C:/Users/gajan/Desktop/demand.csv", demand, delimiter=";")
-    graph_data = numpy.loadtxt("C:/Users/gajan/Desktop/graph.csv", delimiter=";")
-    demand = numpy.loadtxt("C:/Users/gajan/Desktop/demand.csv", delimiter=";")
-    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-3, 1, 1))
+    # graph_data = numpy.loadtxt("C:/Users/gajan/Desktop/graph.csv", delimiter=";")
+    # demand = numpy.loadtxt("C:/Users/gajan/Desktop/demand.csv", delimiter=";")
+    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-10, 1, 1))
 
     print("\rOptimal Score : %.2f" % opt_score, end="")
     if opt_score == float('inf'):
