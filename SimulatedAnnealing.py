@@ -3,6 +3,7 @@ import random
 import math
 import sys
 from scipy.sparse.csgraph import shortest_path
+from copy import deepcopy
 
 
 def create_topology(n_nodes, dx, dy):
@@ -18,7 +19,7 @@ def create_topology(n_nodes, dx, dy):
                 continue
             graph_data[i][j] = math.ceil(math.sqrt((node_list[i][0]-node_list[j][0])**2 +
                                                    (node_list[i][1]-node_list[j][1])**2))
-            if random.random() < 0.25:
+            if graph_data[i][j] > 3*dx/4:
                 graph_data[i][j] = float('inf')
     return graph_data
 
@@ -296,6 +297,7 @@ def evaluate_user_score(routes_graph, routes_dist, demand):
             else:
                 if demand[i][j] != 0:
                     score += demand[i][j] * (total_dist[i][j] * 1.25)
+
     return score
 
 
@@ -308,7 +310,7 @@ def evaluate_operation_score(routes_dist, routes_paths, routes_length,
 
     operation_score = 0
     for i in range(0, len(routes_frequency)):
-        operation_score += math.ceil(2*(routes_length[i]/vehicle.velocity) * (routes_frequency[i]/3600))
+        operation_score += math.ceil(2*routes_length[i] * routes_frequency[i] / vehicle.velocity)
     return operation_score, remain_demand, routes_frequency
 
 
@@ -319,32 +321,73 @@ def evaluate_solution(graph, demand, solution, vehicle: Vehicle, weights):
     operation_score, remain_demand, freq_set = \
         evaluate_operation_score(routes_dist, routes_paths, routes_length,
                                  transfer_dist, transfer_paths, demand, solution, vehicle)
+
     return weights[0]*user_score+weights[1]*operation_score+weights[2]*remain_demand, freq_set
 
 
-def create_neighbour(candidate_space, current_solution: list):
-    mod_index = random.randint(0, len(current_solution)-1)
-    pivot = random.randint(0, len(candidate_space)-1)
-    sign = random.randint(0, 1)*2-1
+def mutate_solution(graph, current_solution: list, min_node, max_node):
+    r_id = random.randint(0, len(current_solution)-1)
+    tmp_solution = deepcopy(current_solution)
+    current_route: list = tmp_solution[r_id][1]
+
+    if len(current_route) <= min_node or (len(current_route) < max_node and random.random() < 0.5):
+        ids = list(set(range(0, len(graph)))-set(current_route))
+        if not ids:
+            return tmp_solution
+        opt_id = -1
+        opt_pos = -1
+        opt_cost = float('inf')
+
+        for n_id in ids:
+            for pos in range(1, len(current_route)):
+                if graph[current_route[pos-1], n_id]+graph[n_id, current_route[pos]] < opt_cost:
+                    opt_id = n_id
+                    opt_pos = pos
+                    opt_cost = graph[current_route[pos-1], n_id]+graph[n_id, current_route[pos]]
+
+        if opt_cost < float('inf'):
+            current_route.insert(opt_pos, opt_id)
+    else:
+        n_pos = random.randint(0, len(current_route)-1)
+        if n_pos == 0 or n_pos == len(current_route)-1 or graph[current_route[n_pos-1], current_route[n_pos+1]] \
+                != float('inf'):
+            current_route.pop(n_pos)
+    tmp_solution[r_id][1] = current_route
+
+    return tmp_solution
+
+
+def transform_solution(candidate_space, current_solution: list):
+    mod_index = random.randint(0, len(current_solution) - 1)
+    pivot = random.randint(0, len(candidate_space) - 1)
+    sign = random.randint(0, 1) * 2 - 1
     for i in range(0, len(candidate_space)):
-        pivot = (pivot+sign) % len(candidate_space)
-        if pivot not in current_solution:
+        pivot = (pivot + sign) % len(candidate_space)
+        if pivot not in current_solution[:][0]:
             break
-    neighbour_solution = current_solution.copy()
+    neighbour_solution = deepcopy(current_solution)
     neighbour_solution.pop(mod_index)
-    neighbour_solution.insert(mod_index, pivot)
+    neighbour_solution.insert(mod_index, [pivot, candidate_space[pivot]])
+    return neighbour_solution
+
+
+def create_neighbour(graph, candidate_space, current_solution: list, min_node, max_node):
+
+    if random.random() < 0.7:
+        neighbour_solution = mutate_solution(graph, current_solution, min_node, max_node)
+    else:
+        neighbour_solution = transform_solution(candidate_space, current_solution)
     return neighbour_solution
 
 
 def simulated_annealing(graph, demand, weights=(1, 1, 1),
-                        max_routes=5, max_generation=2, max_cooling=3, max_counter=150):
-    candidate_space = icrsgp(graph, 5, len(demand), 3)
-    candidate_space.extend(init_hill_climbing(graph, demand, (len(demand)**2)*3, 3, len(demand)))
+                        max_routes=5, max_generation=5, max_cooling=4, max_counter=50):
+    candidate_space = icrsgp(graph, 3, len(demand), 5)
 
     optimal_solution = None
     optimal_score = float('inf')
     optimal_freq_set = None
-    vehicle = Vehicle(60, 0.9)
+    vehicle = Vehicle(20, 10e3)
     progress = 0
     for n in range(1, max_routes+1):
         for g in range(0, max_generation):
@@ -353,40 +396,46 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
                 r = random.randint(0, len(candidate_space)-1)
                 if r in initial_solution:
                     continue
-                initial_solution.append(r)
+                initial_solution.append([r, candidate_space[r]])
             current_solution = initial_solution
             current_score, current_freq_set = \
-                evaluate_solution(graph, demand, [candidate_space[r] for r in current_solution], vehicle, weights)
+                evaluate_solution(graph, demand, [r[1] for r in current_solution], vehicle, weights)
             for t in range(0, max_cooling):
                 for i in range(0, max_counter):
-                    neighbour = create_neighbour(candidate_space, current_solution)
+                    neighbour = create_neighbour(graph, candidate_space, current_solution, 3, len(demand))
                     neighbour_score, neighbour_freq_set =\
-                        evaluate_solution(graph, demand, [candidate_space[r] for r in neighbour], vehicle, weights)
-                    if numpy.min(neighbour_freq_set) < 0.5:
+                        evaluate_solution(graph, demand, [r[1] for r in neighbour], vehicle, weights)
+                    if numpy.min(neighbour_freq_set) < 1:
                         continue
                     if neighbour_score <= current_score:
-                        current_solution = neighbour
+                        current_solution = deepcopy(neighbour)
                         current_score = neighbour_score
-                        current_freq_set = neighbour_freq_set
+                        current_freq_set = deepcopy(neighbour_freq_set)
                     elif random.random() <= math.exp(-neighbour_score*(t+1)/current_score):
-                            current_solution = neighbour
+                            current_solution = deepcopy(neighbour)
                             current_score = neighbour_score
-                            current_freq_set = neighbour_freq_set
+                            current_freq_set = deepcopy(neighbour_freq_set)
                 progress = (((n - 1) / max_routes) + (g / (max_generation * max_routes)) +
                             (t / (max_cooling * max_generation * max_routes))) * 100
                 print("\rProgress:%.2f%%" % progress, end="")
                 sys.stdout.flush()
             if current_score <= optimal_score:
-                optimal_solution = current_solution
+                optimal_solution = deepcopy(current_solution)
                 optimal_score = current_score
-                optimal_freq_set = current_freq_set
-    return [candidate_space[c] for c in optimal_solution], optimal_score, optimal_freq_set
+                optimal_freq_set = deepcopy(current_freq_set)
+
+    return [c[1] for c in optimal_solution], optimal_score, optimal_freq_set
 
 
 def main():
-    graph_data = create_topology(20, 1000, 1000)
-    demand = create_demand_matrix(graph_data, 100)
-    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-4, 1, 0))
+    # graph_data = create_topology(15, 1000, 1000)
+    # demand = create_demand_matrix(graph_data, 100)
+    # numpy.savetxt("C:/Users/gajan/Desktop/graph.csv", graph_data, delimiter=";")
+    # numpy.savetxt("C:/Users/gajan/Desktop/demand.csv", demand, delimiter=";")
+    graph_data = numpy.loadtxt("C:/Users/gajan/Desktop/graph.csv", delimiter=";")
+    demand = numpy.loadtxt("C:/Users/gajan/Desktop/demand.csv", delimiter=";")
+    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-3, 1, 1))
+
     print("\rOptimal Score : %.2f" % opt_score, end="")
     if opt_score == float('inf'):
         graph_dist = shortest_path(graph_data, 'D')
