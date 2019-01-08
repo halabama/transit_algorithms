@@ -330,7 +330,7 @@ def mutate_solution(graph, current_solution: list, min_node, max_node):
     tmp_solution = deepcopy(current_solution)
     current_route: list = tmp_solution[r_id][1]
 
-    if len(current_route) <= min_node or (len(current_route) < max_node and random.random() < 0.5):
+    if len(current_route) <= min_node or (len(current_route) < max_node and random.random() < 0.8):
         ids = list(set(range(0, len(graph)))-set(current_route))
         if not ids:
             return tmp_solution
@@ -435,12 +435,13 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
 
 
 def main():
-    graph_data = create_topology(15, 1000, 1000)
-    demand = create_demand_matrix(graph_data, 100)
+    # graph_data = create_topology(15, 1000, 1000)
+    # demand = create_demand_matrix(graph_data, 100)
+
     # numpy.savetxt("C:/Users/gajan/Desktop/graph.csv", graph_data, delimiter=";")
     # numpy.savetxt("C:/Users/gajan/Desktop/demand.csv", demand, delimiter=";")
-    # graph_data = numpy.loadtxt("C:/Users/gajan/Desktop/graph.csv", delimiter=";")
-    # demand = numpy.loadtxt("C:/Users/gajan/Desktop/demand.csv", delimiter=";")
+    graph_data = numpy.loadtxt("C:/Users/gajan/Desktop/graph.csv", delimiter=";")
+    demand = numpy.loadtxt("C:/Users/gajan/Desktop/demand.csv", delimiter=";")
     opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-10, 1, 1))
 
     print("\rOptimal Score : %.2f" % opt_score, end="")
