@@ -6,11 +6,21 @@ from scipy.sparse.csgraph import shortest_path
 from copy import deepcopy
 
 
+MAX_NODES = 15
+MIN_NODES = 3
+R_MAX = 5
+STEPS_TRAVERSE = 50
+STEPS_COOLING = 5
+STEPS_GENERATION = 5
+SCORE_WEIGHTS = (1e-10, 1, 1)
+TRANSFER_PENALTY = 1.25
+K = 10
+
+
 def create_topology(n_nodes, dx, dy):
     node_list = []
     for i in range(0, n_nodes):
         node_list.append([random.randint(0, dx), random.randint(0, dy)])
-
     graph_data = numpy.empty((n_nodes, n_nodes))
     graph_data.fill(float('inf'))
     for i in range(0, n_nodes):
@@ -28,7 +38,6 @@ def create_demand_matrix(graph_data, max_node_population):
     traffic_count = []
     for i in range(0, len(graph_data[0])):
         traffic_count.append(random.randint(1, max_node_population))
-
     demand_data = numpy.empty((len(graph_data[0]), len(graph_data[0])))
     demand_data.fill(0)
     for i in range(0, len(demand_data[0])):
@@ -67,11 +76,9 @@ def create_path_from_prev(prev):
 
 
 def yen_ksp(graph, k):
-
     dist, prev = shortest_path(graph, 'D', return_predecessors=True)
     res = create_path_from_prev(prev)
     graph_copy = graph.copy()
-
     for i in range(0, len(graph)):
         for j in range(0, len(graph)):
             if i == j:
@@ -81,11 +88,9 @@ def yen_ksp(graph, k):
                 for x in range(0, len(res[i][j][-1])-1):
                     spur_node = res[i][j][-1][x]
                     root_path = res[i][j][-1][0:x+1]
-
                     for path in res[i][j]:
                         if root_path == path[0:x+1]:
                             graph_copy[path[x]][path[x+1]] = float('inf')
-
                     for root_node in root_path:
                         if root_node != spur_node:
                             graph_copy[root_node][:] = float('inf')
@@ -200,7 +205,6 @@ def calculate_solution_stats(graph, solution):
         routes_dist[r], routes_prev = shortest_path(routes_graph[r], 'D', return_predecessors=True)
         routes_paths.append(create_path_from_prev(routes_prev))
         routes_length[r] = routes_dist[r][route[0]][route[-1]]
-
     transfer_graph = numpy.empty((len(solution), len(solution), len(graph[0]), len(graph[0])))
     transfer_dist = numpy.empty((len(solution), len(solution), len(graph[0]), len(graph[0])))
     transfer_paths = []
@@ -217,11 +221,9 @@ def calculate_solution_stats(graph, solution):
 
 
 def populate_routes(routes_dist, routes_paths, routes_length, transfer_dist, transfer_paths, demand, solution):
-
     routes_edge_load = numpy.empty((len(routes_dist), len(demand), len(demand)))
     dynamic_demand = demand.copy()
     routes_edge_load.fill(0)
-
     min_value = numpy.min(routes_dist, 0)
     for i in range(0, len(demand)):
         for j in range(0, len(demand)):
@@ -241,9 +243,7 @@ def populate_routes(routes_dist, routes_paths, routes_length, transfer_dist, tra
                     for x in range(1, len(path)):
                         routes_edge_load[routes[r_id]][path[x - 1]][path[x]] += r_demand
                 dynamic_demand[i][j] = 0
-
     if dynamic_demand.sum() > 0:
-
         min_value = numpy.min(transfer_dist, axis=(0, 1))
         for i in range(0, len(demand)):
             for j in range(0, len(demand)):
@@ -253,7 +253,6 @@ def populate_routes(routes_dist, routes_paths, routes_length, transfer_dist, tra
                 od_pair_length = numpy.array([routes_length[pair[0]] + routes_length[pair[1]] for pair in route_pairs])
                 tot_len = od_pair_length.sum()
                 len_scale = tot_len * (len(od_pair_length) - 1)
-
                 dynamic_demand[i][j] = 0
                 for pair_id in range(0, len(route_pairs)):
                     pair = route_pairs[pair_id]
@@ -271,24 +270,19 @@ def populate_routes(routes_dist, routes_paths, routes_length, transfer_dist, tra
                         elif path[p-1] in route_y and path[p] in route_y:
                             if abs(route_y.index(path[p-1]) - route_y.index(path[p])) == 1:
                                 routes_edge_load[pair[1]][path[p-1]][path[p]] += pair_demand
-
     route_population = numpy.empty(len(solution))
-
     for i in range(0, len(solution)):
         route_population[i] = numpy.max(routes_edge_load[i])
     return route_population, dynamic_demand.sum()
 
 
 def evaluate_user_score(routes_graph, routes_dist, demand):
-
     score = 0
-
     total_graph = numpy.empty((len(demand), len(demand)))
     total_graph.fill(float('inf'))
     for graph in routes_graph:
         total_graph = numpy.minimum(graph, total_graph)
     total_dist = shortest_path(total_graph, 'D')
-
     for i in range(0, len(demand)):
         for j in range(0, len(demand)):
             min_value = numpy.min(routes_dist[:, i, j])
@@ -296,14 +290,12 @@ def evaluate_user_score(routes_graph, routes_dist, demand):
                 score += demand[i][j] * min_value
             else:
                 if demand[i][j] != 0:
-                    score += demand[i][j] * (total_dist[i][j] * 1.25)
-
+                    score += demand[i][j] * (total_dist[i][j] * TRANSFER_PENALTY)
     return score
 
 
 def evaluate_operation_score(routes_dist, routes_paths, routes_length,
                              transfer_dist, transfer_paths, demand, solution, vehicle: Vehicle):
-
     routes_load, remain_demand = \
         populate_routes(routes_dist, routes_paths, routes_length, transfer_dist, transfer_paths, demand, solution)
     routes_frequency = [r/vehicle.capacity for r in routes_load]
@@ -314,30 +306,27 @@ def evaluate_operation_score(routes_dist, routes_paths, routes_length,
     return operation_score, remain_demand, routes_frequency
 
 
-def evaluate_solution(graph, demand, solution, vehicle: Vehicle, weights):
+def evaluate_solution(graph, demand, solution, vehicle: Vehicle):
     routes_graph, routes_dist, routes_paths, routes_length, transfer_dist, transfer_paths = \
         calculate_solution_stats(graph, solution)
     user_score = evaluate_user_score(routes_graph, routes_dist, demand)
     operation_score, remain_demand, freq_set = \
         evaluate_operation_score(routes_dist, routes_paths, routes_length,
                                  transfer_dist, transfer_paths, demand, solution, vehicle)
+    return SCORE_WEIGHTS[0]*user_score+SCORE_WEIGHTS[1]*operation_score+SCORE_WEIGHTS[2]*remain_demand, freq_set
 
-    return weights[0]*user_score+weights[1]*operation_score+weights[2]*remain_demand, freq_set
 
-
-def mutate_solution(graph, current_solution: list, min_node, max_node):
+def mutate_solution(graph, current_solution: list):
     r_id = random.randint(0, len(current_solution)-1)
     tmp_solution = deepcopy(current_solution)
     current_route: list = tmp_solution[r_id][1]
-
-    if len(current_route) <= min_node or (len(current_route) < max_node and random.random() < 0.8):
+    if len(current_route) <= MIN_NODES or (len(current_route) < MAX_NODES and random.random() < 0.8):
         ids = list(set(range(0, len(graph)))-set(current_route))
         if not ids:
             return tmp_solution
         opt_id = -1
         opt_pos = -1
         opt_cost = float('inf')
-
         for n_id in ids:
             for pos in range(0, len(current_route)+1):
                 var = float('inf')
@@ -346,7 +335,8 @@ def mutate_solution(graph, current_solution: list, min_node, max_node):
                 elif pos == len(current_route):
                     var = graph[current_route[pos-1], n_id]
                 else:
-                    var = graph[current_route[pos-1], n_id]+graph[n_id, current_route[pos]]
+                    var = graph[current_route[pos-1], n_id]+graph[n_id, current_route[pos]]-graph[current_route[pos-1],
+                                                                                                  current_route[pos]]
                 if var < opt_cost:
                     opt_id = n_id
                     opt_pos = pos
@@ -360,7 +350,6 @@ def mutate_solution(graph, current_solution: list, min_node, max_node):
                 != float('inf'):
             current_route.pop(n_pos)
     tmp_solution[r_id][1] = current_route
-
     return tmp_solution
 
 
@@ -378,26 +367,23 @@ def transform_solution(candidate_space, current_solution: list):
     return neighbour_solution
 
 
-def create_neighbour(graph, candidate_space, current_solution: list, min_node, max_node):
-
+def create_neighbour(graph, candidate_space, current_solution: list):
     if random.random() < 0.7:
-        neighbour_solution = mutate_solution(graph, current_solution, min_node, max_node)
+        neighbour_solution = mutate_solution(graph, current_solution)
     else:
         neighbour_solution = transform_solution(candidate_space, current_solution)
     return neighbour_solution
 
 
-def simulated_annealing(graph, demand, weights=(1, 1, 1),
-                        max_routes=5, max_generation=5, max_cooling=4, max_counter=50):
-    candidate_space = icrsgp(graph, 4, len(demand), 10)
-
+def simulated_annealing(graph, demand):
+    candidate_space = icrsgp(graph, MIN_NODES, MAX_NODES, K)
     optimal_solution = None
     optimal_score = float('inf')
     optimal_freq_set = None
-    vehicle = Vehicle(20, 10e3)
+    vehicle = Vehicle(40, 10e3)
     progress = 0
-    for n in range(1, max_routes+1):
-        for g in range(0, max_generation):
+    for n in range(1, R_MAX+1):
+        for g in range(0, STEPS_GENERATION):
             initial_solution = []
             while len(initial_solution) < n:
                 r = random.randint(0, len(candidate_space)-1)
@@ -406,12 +392,12 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
                 initial_solution.append([r, candidate_space[r]])
             current_solution = initial_solution
             current_score, current_freq_set = \
-                evaluate_solution(graph, demand, [r[1] for r in current_solution], vehicle, weights)
-            for t in range(0, max_cooling):
-                for i in range(0, max_counter):
-                    neighbour = create_neighbour(graph, candidate_space, current_solution, 4, len(demand))
+                evaluate_solution(graph, demand, [r[1] for r in current_solution], vehicle)
+            for t in range(0, STEPS_COOLING):
+                for i in range(0, STEPS_TRAVERSE):
+                    neighbour = create_neighbour(graph, candidate_space, current_solution)
                     neighbour_score, neighbour_freq_set =\
-                        evaluate_solution(graph, demand, [r[1] for r in neighbour], vehicle, weights)
+                        evaluate_solution(graph, demand, [r[1] for r in neighbour], vehicle)
                     if numpy.min(neighbour_freq_set) < 1:
                         continue
                     if neighbour_score <= current_score:
@@ -422,15 +408,14 @@ def simulated_annealing(graph, demand, weights=(1, 1, 1),
                             current_solution = deepcopy(neighbour)
                             current_score = neighbour_score
                             current_freq_set = deepcopy(neighbour_freq_set)
-                progress = (((n - 1) / max_routes) + (g / (max_generation * max_routes)) +
-                            (t / (max_cooling * max_generation * max_routes))) * 100
+                progress = (((n - 1) / R_MAX) + (g / (STEPS_GENERATION * R_MAX)) +
+                            (t / (STEPS_COOLING * STEPS_GENERATION * R_MAX))) * 100
                 print("\rProgress:%.2f%%" % progress, end="")
                 sys.stdout.flush()
             if current_score < optimal_score:
                 optimal_solution = deepcopy(current_solution)
                 optimal_score = current_score
                 optimal_freq_set = deepcopy(current_freq_set)
-
     return [c[1] for c in optimal_solution], optimal_score, optimal_freq_set
 
 
@@ -440,9 +425,9 @@ def main():
 
     # numpy.savetxt("C:/Users/gajan/Desktop/graph.csv", graph_data, delimiter=";")
     # numpy.savetxt("C:/Users/gajan/Desktop/demand.csv", demand, delimiter=";")
-    graph_data = numpy.loadtxt("C:/Users/gajan/Desktop/graph.csv", delimiter=";")
+    graph_data = numpy.loadtxt("C:/Users/gajan/Desktop/routegraph.csv", delimiter=";")
     demand = numpy.loadtxt("C:/Users/gajan/Desktop/demand.csv", delimiter=";")
-    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand, weights=(1e-10, 1, 1))
+    opt_solution, opt_score, opt_freq_set = simulated_annealing(graph_data, demand)
 
     print("\rOptimal Score : %.2f" % opt_score, end="")
     if opt_score == float('inf'):
