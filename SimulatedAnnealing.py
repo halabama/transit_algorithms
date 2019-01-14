@@ -106,7 +106,7 @@ def yen_ksp(graph, k):
                     for n in range(1, len(total_path)):
                         cost += graph[total_path[n-1]][total_path[n]]
                     if cost != 0 and cost != float('inf'):
-                        b.append([n, total_path])
+                        b.append([cost, total_path])
                     graph_copy = graph.copy()
                 if not b:
                     break
