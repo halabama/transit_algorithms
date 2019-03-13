@@ -346,7 +346,7 @@ def evaluate_operation_score(routes_dist, routes_paths, routes_length,
 
 
 def evaluate_solution(graph, demand, solution, vehicle: Vehicle):
-    # Sum up ranking measures calculated
+    # Weighted sum up ranking measures calculated individually
 
     routes_graph, routes_dist, routes_paths, routes_length, transfer_dist, transfer_paths = \
         calculate_solution_stats(graph, solution)
@@ -358,6 +358,8 @@ def evaluate_solution(graph, demand, solution, vehicle: Vehicle):
 
 
 def mutate_solution(graph, current_solution: list):
+    # Extend or shrink a single route if possible by a random node
+
     r_id = random.randint(0, len(current_solution)-1)
     tmp_solution = deepcopy(current_solution)
     current_route: list = tmp_solution[r_id][1]
@@ -395,6 +397,8 @@ def mutate_solution(graph, current_solution: list):
 
 
 def transform_solution(candidate_space, current_solution: list):
+    # Substitute single route with randomly chosen single route from candidate_space
+
     mod_index = random.randint(0, len(current_solution) - 1)
     pivot = random.randint(0, len(candidate_space) - 1)
     sign = random.randint(0, 1) * 2 - 1
@@ -409,6 +413,8 @@ def transform_solution(candidate_space, current_solution: list):
 
 
 def create_neighbour(graph, candidate_space, current_solution: list):
+    # Create test-solution by modifying current_solution using either mutation or permutation(candidate-space)
+    
     if random.random() < 0.7:
         neighbour_solution = mutate_solution(graph, current_solution)
     else:
